@@ -212,6 +212,9 @@ class ParallelCodebase(CodebaseGenerator):
         self.create_folder()
 
         self.write_python_file("main_code", result.get('code', ''))
+        
+        self.write_python_file(
+            "documented_code", result.get('documented_code', ''))
 
         performance_comparison = ""
         if result.get('sequential_time') and result.get('parallel_time'):

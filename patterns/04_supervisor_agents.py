@@ -13,6 +13,7 @@ class SupervisorState(TypedDict):
     code: str
     security_report: str
     quality_report: str
+    database_report: str
     completed_agents: list
     final_analysis: str
     next_agent: str
@@ -41,6 +42,11 @@ quality_expert_prompt = ChatPromptTemplate.from_messages([
     ("human", "Quality analysis for:\n{code}")
 ])
 
+database_expert_prompt = ChatPromptTemplate.from_messages([
+    ("system", "You are a Database Expert. Review database operations and maintainability."),
+    ("human", "Database analysis for:\n{code}")
+])
+
 synthesis_prompt = ChatPromptTemplate.from_messages([
     ("system", "Create final analysis summary with key recommendations."),
     ("human", "Security: {security_report}\n\nQuality: {quality_report}")
@@ -53,7 +59,8 @@ def coder_agent(state: SupervisorState) -> SupervisorState:
         "code": response.content,
         "completed_agents": [],
         "security_report": "",
-        "quality_report": ""
+        "quality_report": "",
+        "database_report": ""
     }
 
 
@@ -64,6 +71,8 @@ def supervisor_agent(state: SupervisorState) -> SupervisorState:
         return {"next_agent": "security_expert"}
     elif "quality_expert" not in completed:
         return {"next_agent": "quality_expert"}
+    elif "database_expert" not in completed:
+        return {"next_agent": "database_expert"}
     else:
         return {"next_agent": "complete"}
 
@@ -84,15 +93,24 @@ def quality_expert_agent(state: SupervisorState) -> SupervisorState:
     return {"quality_report": response.content, "completed_agents": completed}
 
 
+def database_expert_agent(state: SupervisorState) -> SupervisorState:
+    response = llm.invoke(
+        database_expert_prompt.format_messages(code=state["code"]))
+    completed = state.get("completed_agents", []).copy()
+    completed.append("database_expert")
+    return {"database_report": response.content, "completed_agents": completed}
+
+
 def synthesis_agent(state: SupervisorState) -> SupervisorState:
     response = llm.invoke(synthesis_prompt.format_messages(
         security_report=state.get("security_report", "Not analysed"),
-        quality_report=state.get("quality_report", "Not analysed")
+        quality_report=state.get("quality_report", "Not analysed"),
+        database_report=state.get("database_report", "Not analysed")
     ))
     return {"final_analysis": response.content}
 
 
-def route_to_expert(state: SupervisorState) -> Literal["security_expert", "quality_expert", "synthesis"]:
+def route_to_expert(state: SupervisorState) -> Literal["security_expert", "quality_expert", "database_expert", "synthesis"]:
     next_agent = state.get("next_agent", "complete")
     if next_agent == "complete":
         return "synthesis"
@@ -104,6 +122,7 @@ builder.add_node("coder", coder_agent)
 builder.add_node("supervisor", supervisor_agent)
 builder.add_node("security_expert", security_expert_agent)
 builder.add_node("quality_expert", quality_expert_agent)
+builder.add_node("database_expert", database_expert_agent)
 builder.add_node("synthesis", synthesis_agent)
 
 builder.add_edge(START, "coder")
@@ -114,11 +133,13 @@ builder.add_conditional_edges(
     {
         "security_expert": "security_expert",
         "quality_expert": "quality_expert",
+        "database_expert": "database_expert",
         "synthesis": "synthesis"
     }
 )
 builder.add_edge("security_expert", "supervisor")
 builder.add_edge("quality_expert", "supervisor")
+builder.add_edge("database_expert", "supervisor")
 builder.add_edge("synthesis", END)
 
 workflow = builder.compile()
